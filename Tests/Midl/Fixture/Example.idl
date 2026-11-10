@@ -1,0 +1,18 @@
+// Copyright (c) Microsoft Corporation. All rights reserved.
+#ifndef REQUIRED_OPTION
+#error The compiler option was not forwarded.
+#endif
+#include "Types.idl"
+import "unknwn.idl";
+
+[object, uuid(8543A74B-D33E-45C5-9B9E-6E950443450B), pointer_default(unique)]
+interface IExample : IUnknown
+{
+    HRESULT GetValue([out, retval] RESULT_TYPE* value);
+};
+
+[uuid(9B22E4E0-FE99-47F2-895A-B90EBFCAC292), version(1.0)]
+library Example
+{
+    interface IExample;
+};

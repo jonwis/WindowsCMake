@@ -29,6 +29,183 @@ endif()
 
 set(MIDL_1_0_PLATFORM_RESPONSE_FILE "${CMAKE_BINARY_DIR}/midl.1.0.platform.rsp")
 
+#[[
+add_midl(<target> COMPILER <executable-or-target> IDL <file>
+    OUTPUT_DIRECTORY <directory> OUTPUTS <files...>
+    [HEADER <name>] [IID <name>] [PROXY <name>] [DLLDATA <name>]
+    [TLB <name> | NOTLB] [OPTIONS <arguments...>]
+    [INCLUDE_DIRECTORIES <directories...>] [DEPENDS <files-or-targets...>]
+    [WORKING_DIRECTORY <directory>])
+
+Creates an interface target owning one IDL invocation. Unlike enable_midl,
+compiler options and generated filenames are explicit, and generated C sources
+are not automatically compiled into consumers.
+]]
+function(add_midl TARGET)
+    cmake_parse_arguments(
+        PARSE_ARGV
+        1
+        MIDL
+        "NOTLB"
+        "COMPILER;IDL;OUTPUT_DIRECTORY;HEADER;IID;PROXY;DLLDATA;TLB;WORKING_DIRECTORY"
+        "OUTPUTS;OPTIONS;INCLUDE_DIRECTORIES;DEPENDS"
+    )
+    if(MIDL_UNPARSED_ARGUMENTS OR MIDL_KEYWORDS_MISSING_VALUES)
+        message(FATAL_ERROR "Invalid add_midl arguments: ${MIDL_UNPARSED_ARGUMENTS};${MIDL_KEYWORDS_MISSING_VALUES}")
+    endif()
+    foreach(
+        REQUIRED IN
+        ITEMS COMPILER
+              IDL
+              OUTPUT_DIRECTORY
+              OUTPUTS
+    )
+        if(NOT MIDL_${REQUIRED})
+            message(FATAL_ERROR "add_midl requires ${REQUIRED}")
+        endif()
+    endforeach()
+    if(MIDL_NOTLB AND MIDL_TLB)
+        message(FATAL_ERROR "add_midl cannot combine TLB and NOTLB")
+    endif()
+    if(NOT MIDL_WORKING_DIRECTORY)
+        set(MIDL_WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+    endif()
+    get_filename_component(
+        MIDL_WORKING_DIRECTORY
+        "${MIDL_WORKING_DIRECTORY}"
+        ABSOLUTE
+        BASE_DIR
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+    get_filename_component(
+        MIDL_IDL
+        "${MIDL_IDL}"
+        ABSOLUTE
+        BASE_DIR
+        "${MIDL_WORKING_DIRECTORY}"
+    )
+    get_filename_component(
+        MIDL_OUTPUT_DIRECTORY
+        "${MIDL_OUTPUT_DIRECTORY}"
+        ABSOLUTE
+        BASE_DIR
+        "${CMAKE_CURRENT_BINARY_DIR}"
+    )
+    foreach(OUTPUT IN LISTS MIDL_OUTPUTS)
+        if(NOT IS_ABSOLUTE "${OUTPUT}")
+            message(FATAL_ERROR "add_midl OUTPUTS must be absolute: ${OUTPUT}")
+        endif()
+        file(
+            RELATIVE_PATH
+            RELATIVE
+            "${MIDL_OUTPUT_DIRECTORY}"
+            "${OUTPUT}"
+        )
+        if(IS_ABSOLUTE "${RELATIVE}" OR RELATIVE MATCHES "^\\.\\.(/|$)")
+            message(FATAL_ERROR "add_midl OUTPUTS must be inside OUTPUT_DIRECTORY: ${OUTPUT}")
+        endif()
+    endforeach()
+    set(MIDL_ARGUMENTS ${MIDL_OPTIONS})
+    foreach(DIRECTORY IN LISTS MIDL_INCLUDE_DIRECTORIES)
+        list(
+            APPEND
+            MIDL_ARGUMENTS
+            /I
+            "${DIRECTORY}"
+        )
+    endforeach()
+    list(
+        APPEND
+        MIDL_ARGUMENTS
+        /out
+        "${MIDL_OUTPUT_DIRECTORY}"
+    )
+    foreach(
+        FIELD IN
+        ITEMS HEADER
+              IID
+              PROXY
+              DLLDATA
+              TLB
+    )
+        if(MIDL_${FIELD})
+            string(TOLOWER "${FIELD}" SWITCH)
+            if(FIELD STREQUAL "HEADER")
+                set(SWITCH h)
+            endif()
+            list(
+                APPEND
+                MIDL_ARGUMENTS
+                "/${SWITCH}"
+                "${MIDL_${FIELD}}"
+            )
+        endif()
+    endforeach()
+    if(MIDL_NOTLB)
+        list(APPEND MIDL_ARGUMENTS /notlb)
+    endif()
+    set(COMPILER_DEPENDENCIES "${MIDL_COMPILER}")
+    if(TARGET "${MIDL_COMPILER}")
+        list(APPEND COMPILER_DEPENDENCIES "$<TARGET_FILE:${MIDL_COMPILER}>")
+    endif()
+    list(APPEND MIDL_ARGUMENTS "${MIDL_IDL}")
+    set(RESPONSE "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${TARGET}-$<CONFIG>.midl.rsp")
+    set(CONTENT "")
+    foreach(ARGUMENT IN LISTS MIDL_ARGUMENTS)
+        if(ARGUMENT MATCHES "[\"\r\n]")
+            message(FATAL_ERROR "MIDL response arguments cannot contain quotes or newlines: ${ARGUMENT}")
+        endif()
+        string(APPEND CONTENT "\"${ARGUMENT}\"\n")
+    endforeach()
+    file(
+        GENERATE
+        OUTPUT
+        "${RESPONSE}"
+        CONTENT
+        "${CONTENT}"
+    )
+    set(INVENTORY "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${TARGET}-$<CONFIG>.midl.outputs")
+    list(
+        JOIN
+        MIDL_OUTPUTS
+        "\n"
+        CONTENT
+    )
+    file(
+        GENERATE
+        OUTPUT
+        "${INVENTORY}"
+        CONTENT
+        "${CONTENT}\n"
+    )
+    set(PRUNE "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/MidlOutputs.cmake")
+    add_custom_command(
+        OUTPUT ${MIDL_OUTPUTS}
+        BYPRODUCTS "${MIDL_OUTPUT_DIRECTORY}/.windows-outputs"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${MIDL_OUTPUT_DIRECTORY}"
+        COMMAND "${MIDL_COMPILER}" "@${RESPONSE}"
+        COMMAND "${CMAKE_COMMAND}" "-DROOT=${MIDL_OUTPUT_DIRECTORY}" "-DINVENTORY=${INVENTORY}" -P "${PRUNE}"
+        DEPENDS ${COMPILER_DEPENDENCIES}
+                "${MIDL_IDL}"
+                ${MIDL_DEPENDS}
+                "${RESPONSE}"
+                "${INVENTORY}"
+                "${PRUNE}"
+        WORKING_DIRECTORY "${MIDL_WORKING_DIRECTORY}"
+        COMMENT "Processing ${MIDL_IDL}"
+        VERBATIM
+    )
+    add_custom_target(
+        "${TARGET}_generate"
+        DEPENDS ${MIDL_OUTPUTS}
+        COMMENT "Generating MIDL outputs for ${TARGET}"
+    )
+    add_library("${TARGET}" INTERFACE)
+    add_dependencies("${TARGET}" "${TARGET}_generate")
+    target_include_directories("${TARGET}" BEFORE INTERFACE "${MIDL_OUTPUT_DIRECTORY}")
+    set_target_properties("${TARGET}" PROPERTIES MIDL_OUTPUTS "${MIDL_OUTPUTS}")
+endfunction()
+
 #----------------------------------------------------------------------------------------------------------------------
 #
 #----------------------------------------------------------------------------------------------------------------------

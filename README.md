@@ -2,6 +2,45 @@
 
 'WindowsCMake' contains CMake-scripts for Windows-specific build tasks, like unpacking NuGet files or generating Cpp/WinRT projections.
 
+## Explicit COM IDL generation
+
+`include(Midl)` provides `add_midl` for Ninja and other custom-command generators.
+It creates an interface target owning the declared outputs; consumers choose which
+generated C files to compile. Existing `enable_midl(target)` behavior is unchanged.
+
+```cmake
+add_midl(interfaces
+    COMPILER WindowsSDK::midl
+    IDL Interfaces.idl
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated"
+    OUTPUTS "${CMAKE_CURRENT_BINARY_DIR}/generated/Interfaces.h"
+            "${CMAKE_CURRENT_BINARY_DIR}/generated/Interfaces_i.c"
+            "${CMAKE_CURRENT_BINARY_DIR}/generated/Interfaces_p.c"
+            "${CMAKE_CURRENT_BINARY_DIR}/generated/dlldata.c"
+    HEADER Interfaces.h
+    NOTLB
+    OPTIONS /nologo /W1 /char signed /env x64 /target NT100
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/Imported.idl")
+```
+
+`COMPILER` accepts an executable target or path. `OPTIONS` supplies the exact MIDL
+flags without implicit warning or platform overrides. `HEADER`, `IID`, `PROXY`,
+`DLLDATA` and `TLB` select filenames; `NOTLB` disables type-library generation.
+List every generated file as an absolute path in `OUTPUTS`, and imported IDL or
+configuration inputs in `DEPENDS`. `INCLUDE_DIRECTORIES` adds ordered `/I` options.
+Relative IDL paths resolve from `WORKING_DIRECTORY`, which defaults to the current
+source directory. Relative output directories resolve from the current binary directory.
+Each invocation owns its output directory. Successful regeneration removes obsolete
+manifest-owned files and preserves files it did not generate. Consumers link the interface
+target; use `<target>_generate` to build only its generated files.
+
+The focused tests require Ninja and an initialized Windows SDK command environment:
+
+```powershell
+cmake -S Tests/Midl -B out/midl -G Ninja
+ctest --test-dir out/midl --output-on-failure
+```
+
 ## Linting
 
 WindowsCMake uses [`cmakelang`][cmakelang] for linting the CMake files in the codebase. The

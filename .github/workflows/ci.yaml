@@ -49,6 +49,15 @@ jobs:
             }
           }
           Invoke-Pester -Configuration $Configuration
+      - name: Test configurable MIDL generation
+        shell: pwsh
+        run: |
+          $VS = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" `
+            -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -property installationPath
+          if (-not $VS) { throw 'Visual Studio C++ tools were not found' }
+          & $env:ComSpec /c "call `"$VS\VC\Auxiliary\Build\vcvars64.bat`" && cmake -S Tests\Midl -B __midl -G Ninja && ctest --test-dir __midl --output-on-failure"
+          exit $LASTEXITCODE
   build:
     name: Build Examples
     strategy:
